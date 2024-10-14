@@ -66,7 +66,7 @@ Sensor::Sensor(int32_t sensorHandle, ISensorsEventCallback* callback)
       mCallback(callback),
       mMode(OperationMode::NORMAL) {
     mSensorInfo.sensorHandle = sensorHandle;
-    mSensorInfo.vendor = "The LineageOS Project";
+    mSensorInfo.vendor = "Paranoid Android";
     mSensorInfo.version = 1;
     constexpr float kDefaultMaxDelayUs = 1000 * 1000;
     mSensorInfo.maxDelay = kDefaultMaxDelayUs;
@@ -95,7 +95,7 @@ const SensorInfo& Sensor::getSensorInfo() const {
 
 void Sensor::batch(int32_t samplingPeriodNs) {
     samplingPeriodNs =
-        std::clamp(samplingPeriodNs, mSensorInfo.minDelay * 1000, mSensorInfo.maxDelay * 1000);
+            std::clamp(samplingPeriodNs, mSensorInfo.minDelay * 1000, mSensorInfo.maxDelay * 1000);
 
     if (mSamplingPeriodNs != samplingPeriodNs) {
         mSamplingPeriodNs = samplingPeriodNs;
@@ -215,7 +215,7 @@ OneShotSensor::OneShotSensor(int32_t sensorHandle, ISensorsEventCallback* callba
 
 SysfsPollingOneShotSensor::SysfsPollingOneShotSensor(
     int32_t sensorHandle, ISensorsEventCallback* callback, const std::string& pollPath,
-    const std::string& name, const std::string& typeAsString,
+    const std::string& enablePath, const std::string& name, const std::string& typeAsString,
     SensorType type)
     : OneShotSensor(sensorHandle, callback) {
     mSensorInfo.name = name;
@@ -225,6 +225,10 @@ SysfsPollingOneShotSensor::SysfsPollingOneShotSensor(
     mSensorInfo.resolution = 1.0f;
     mSensorInfo.power = 0;
     mSensorInfo.flags |= SensorFlagBits::WAKE_UP;
+
+    if (enablePath != "") {
+        mEnableStream.open(enablePath);
+    }
 
     int rc;
 
@@ -256,8 +260,19 @@ SysfsPollingOneShotSensor::SysfsPollingOneShotSensor(
     };
 }
 
+SysfsPollingOneShotSensor::SysfsPollingOneShotSensor(
+        int32_t sensorHandle, ISensorsEventCallback* callback, const std::string& pollPath,
+        const std::string& name, const std::string& typeAsString, SensorType type)
+    : SysfsPollingOneShotSensor(sensorHandle, callback, pollPath, "", name, typeAsString, type) {}
+
 SysfsPollingOneShotSensor::~SysfsPollingOneShotSensor() {
     interruptPoll();
+}
+
+void SysfsPollingOneShotSensor::writeEnable(bool enable) {
+    if (mEnableStream) {
+        mEnableStream << (enable ? '1' : '0') << std::flush;
+    }
 }
 
 void SysfsPollingOneShotSensor::activate(bool enable, bool notify, bool lock) {
@@ -268,6 +283,8 @@ void SysfsPollingOneShotSensor::activate(bool enable, bool notify, bool lock) {
     }
 
     if (mIsEnabled != enable) {
+
+        writeEnable(enable);
 
         mIsEnabled = enable;
 
@@ -342,6 +359,22 @@ std::vector<Event> SysfsPollingOneShotSensor::readEvents() {
 void SysfsPollingOneShotSensor::fillEventData(Event& event) {
     event.u.data[0] = 0;
     event.u.data[1] = 0;
+}
+
+bool IsPathValid(const std::string& path) {
+  std::ifstream file(path);
+  return file.good();
+}
+
+std::string GetPollPath(const char** array) {
+  for (; *array != NULL; ++array) {
+    const char* path = *array;
+
+    if (IsPathValid(path))
+      return path;
+  }
+
+  return "";
 }
 
 }  // namespace implementation
